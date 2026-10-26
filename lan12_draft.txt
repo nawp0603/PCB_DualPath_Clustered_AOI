@@ -1,0 +1,40 @@
+
+---
+
+## [2026-10-26][VERIFIER][PHASE 5 - NGHIEM THU LAN12 (RE-AUDIT F1/F2/F3 RE-CONFIRM) - FAILED-NEED FIX]
+
+Nghiep vu: Kiem toan doc lap ban giao Coder lan12 (F1/F2/F3 RE-CONFIRM, KHONG sua src/scripts, wiring lan10 giu nguyen) theo yeu cau kiem toan toan bo code va ket qua Phase vua ban giao, chay day du pytest, ghi bien ban nghiem thu. Verifier KHONG sua src/scripts, KHONG mo them 01/04 (Zero-defect-training Boards), KHONG re-run GPU (tai su dung benchmark sealed lan4 13:48 25/10, seal MATCH truoc/sau pytest; tests/phase5_benchmark.py khong truyen rescue params nen chay DISABLED mac dinh, ket qua sealed van la baseline hop le), chi doc + pytest + mock doc lap + inspect + seal + append log nay.
+
+### A. Niem phong + hoi quy + pham vi (chay thuc lan12)
+- verify_phase5_seal truoc/sau moi buoc MATCH eps 28.0, min_samples 1, k_raw 12, frozen_sha256 8d4baa3ea11c683e3e18879f1e08a9dc97139e0def667ae4d8abab4830b514d9, pipe_match True.
+- calib_report.json NGUYEN (mtime 17:33 25/10, size 17615, eps28/m1/k12/grid22-28/purity0.8571/over0.0854/frag1.0/clu1.0/plateau True); ab_benchmark.csv/json NGUYEN (mtime 20:49 25/10 lan4, 10 rows 5 configs x 2 scenarios, meta timestamp 2026-10-25T13:48:55Z, torch 2.6.0+cu124 RTX3070, yolo11n_day2.pt sha 18c1c397, conf0.20 IoU0.5 seed 20261023 bootstrap 10000); khong fallback_log.jsonl; khong tests/_tmp; tests mtimes NGUYEN nen Coder KHONG sua tests/results. Workspace sach.
+- pytest tests/ -q : 62 passed in 18.69s (lan truoc 21.30s cung 62 passed, chenh do may, khong hoi quy). Chi tiet batch 6 + dbscan 8 + e2e 4 + frag_rescue 8 + gating 7 + geometry 6 + phase2 8 + phase4 6 + phase5 9. Cap n_crops<=10 dung D1-sua 8+2.
+- Hang so live: cropper RANK8/FRAG250.0/SLOTS2/MAX8; dbscan Z0/TAU 2.0/1.0 DELTA 1e-6 BISECT 640/2; gating R80/NMS0.50/MARGIN40/RESCUE_R_MAX200; batch MAX_GPU_CALLS 3. Gate (i) tuan thu, KHONG doi frozen.
+- Hinh hoc + GPU guard: to_input_coords pure translation (mul False div False); YOLODetector.predict_batch rect True half True; _assert_rect_enforced + groups cap RuntimeError PASS.
+- Zero-leakage + sandbox: ALLOWED 05-12, FORBIDDEN 01/04; _assert_no_leakage + allow_test + seal gate truoc moi mo 01/04; PHASE5_CONFIGS du 5-config. Grep src/cluster chi match docstring AUDIT/chu thich, 0 hit code doc Board. calibrate/blob_stats CPU-only. Verifier khong mo 01/04 ngoai doc sealed CSV/JSON.
+
+### B. Audit code F1/F2/F3 lan12 vs 6 chot AUDIT (doc source truc tiep, khong sua)
+- (01) m=1 Union-Find + Z-weighted + load_frozen bat min_samples 1 + K-cut truoc cum + cluster eps28 m1 + cap8+rescue defaults 250.0/2 rescue ON duong chinh : PASS ky thuat.
+- (02) Zero-leakage + seal gate + allow_test : PASS. F1/F2/F3 khong them duong mo 01/04 (run_config_single 570-601, run_clustered_single 618-664, build_batch_inputs rescue_keep_res, predict_clusters rescue_conf, union_of_disks_gate rescue_r, run_dualpath 920-986, CLI defaults DISABLED 1055-1099, UI passthrough). Khong bypass seal/leak-guard.
+- (03) Cap 8 + rescue 8+2 : PASS ky thuat (F1 chi tieu thu resolution, F3 chi tieu thu R_rescue).
+- (04) A1/A2/B + rect guard + call caps : PASS + F1/F2 zero-extra TAI XAC NHAN lan12 (rescue_keep_res False bit-identical 1-call; True chi rescue cat bucket + imgsz=bucket, main 640, toi da 3 nhom 640 shared, batch_bucket 144-209; predict_clusters eff=min + post-filter main, batch_bucket 253-362; wiring rescue khop day du).
+- (05) U R80 require_overlap True + NMS class-aware IoU0.50 + H ablation + pipeline gating NMS fuse : PASS ky thuat. F3 rescue_r None bit-identical R80; float chi rescue dung R_rescue, main 80, IoU OR giu nguyen diff R80 shared; bound 80 < rescue_r <= 200 ValueError KHONG clamp; rescue_r + gating H ValueError (cluster_gating 101-136, evaluate 654-663). NMS sau gating truoc fuse.
+- (06) Bootstrap 10000 + Wilcoxon + P95 + verdict C1 (phase5_benchmark 102-115, 330-382) : PASS phuong phap, FAIL ket qua sealed. Driver khong truyen rescue nen sealed DISABLED hop le.
+
+### C. Kiem chung F1/F2/F3 doc lap lan12 (mock chay thuc, Verifier tu chay)
+- F1 mock (img 1000x1000, 1 main 600 + 2 rescue 120/100): OFF 640x3 1 nhom; ON main 640 + rescue 384x2, shape khop imgsz_call, flags preserved, groups OFF [640] / ON [384,640] <=3 640 shared : PASS.
+- F1+F2 mock (conf0.20/rescue0.12): OFF calls 1x(3,0.20,640) n_dets 6 eff 0.20; ON calls 1x(3,0.12,640) n_dets 5 eff 0.12 n_rescue 2 n_main 1, main confs [0.25] post-filter dung loai 0.18, rescue confs [0.18,0.18,0.25,0.25] cuu dung; no-rescue + rescue_conf calls 1x(1,0.20,640) eff 0.20 khong ha baseline : PASS zero-extra.
+- F3 mock (1 center, 2 dets dist100 IoU0: 1 main + 1 rescue): OFF kept 0/2; ON rescue_r 150 kept 1/2 (rescue kept, main drop dung); bounds 80/50/200.01/300 ValueError-OK; 200.0 OK; OFF bit-identical : PASS.
+- Fail-fast + CLI + driver: bound + H-reject + CLI defaults DISABLED. Board07 geometry + CPU 108 rec Coder-bao (frag cam 61/61, dropGT 3-1, clu 127/128): Verifier lan12 KHONG repro full 108 (ghi nhan Coder-bao, se repro khi quyet dinh GPU replay). Khong dung de doi gate 5.1.
+
+### D. Ket qua GPU sealed lan4 (tai su dung, seal MATCH, duong DISABLED)
+- C1 Standard: TP84 FP13 frag16/18 prox12/18 dTP-1 dFrag0 dProx0 CI[-0.0654,0.0377] wx_crops0.01038 P95 302.8 : FAIL (can dFrag>0/dProx>0 + CI khong chua 0 + wx<0.01).
+- C1 Camera: TP57 FP5 frag8/19 prox6/20 dTP6 dFrag0 dProx0 CI[0.0,0.1238] wx1.62e-06 P95 358.8 : FAIL (dFrag0/dProx0 + CI chua 0; wx PASS khong cuu gate). C2 cam prox+2 nhung dFrag0 nen D4 mot minh KHONG pass. P95 PASS het, FAR0 fb0. Verdict FAIL 5 notes. Cach tai hien: results/ab_benchmark.csv 10 rows hoac tests/phase5_benchmark.py (can CUDA + seal MATCH).
+- File dong loi: tests/phase5_benchmark.py:361-382 (verdict gate C1). CPU-only repro lan12: pytest 62 passed in 18.69s + seal MATCH truoc/sau.
+
+### E. Ket luan [FAILED-NEED FIX]
+- File tests/phase5_benchmark.py:361-382 (verdict gate C1): standard dFrag0/dProx0 + CI chua 0 + wx0.01038>0.01; camera dFrag0/dProx0 + CI chua 0. P95 PASS khong cuu gate.
+- Yeu cau Coder (giu D2/D3/D4; F2/F1/F3 wiring xong, RE-CONFIRM lan12 KHONG sua src/scripts): KHONG doi frozen khi chua duoc dong y quay Phase 1. De xuat Verifier replay GPU han che (seal MATCH lam dieu kien mo 01/04 Zero-defect-training Boards): C1 A1+U conf0.20 vs F2 rescue_conf 0.12-0.15 vs F1 rescue_keep_res True vs F3 rescue_r bounded (VD 120/150/200, main R80, IoU OR giu nguyen), do FAR tren GOOD + dFrag/dProx + CI/wx (Bootstrap 10000/wx/p95 nhu cu). D2 GIU NGUYEN. D3/D4 TAM HOAN.
+- 6 chot AUDIT: (01)(02)(04)(05) PASS ky thuat; (03) PASS ky thuat 8+2 (hieu qua sealed chua du); (06) FAIL o dTP/CI/wx.
+
+TRANG THAI: F1/F2/F3 wiring [VERIFIED TECHNICAL - DISABLED SAFE, zero extra calls, bounds enforced, mock PASS, pytest 62 passed, seal MATCH] nhung Phase 5 giu [FAILED - NEED FIX] (gate 5.1 chua pass tren sealed lan4; cho GPU replay F1/F2/F3 han che o lan sau de phan quyet dFrag/dProx).
